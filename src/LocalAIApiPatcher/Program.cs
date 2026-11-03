@@ -21,6 +21,8 @@ namespace LocalAIApiPatcher
         private const string RuntimeTypeName = "LocalAIApiMod.LocalAIApiRuntime";
         private const string KolkataApiTypeName = "KolkataApi";
         private const string HostAiSettingsTypeName = "HostAiSettings";
+        private const string CompleteChatMethodName = "CompleteChatCompletionAsync";
+        private const string CompleteOpenRouterMethodName = "CompleteOpenRouterAsync";
 
         private static readonly string[] BooleanTrueGetters =
         {
@@ -44,6 +46,11 @@ namespace LocalAIApiPatcher
             try
             {
                 var options = PatchOptions.Parse(args);
+
+                if (options.VerifyOnly)
+                {
+                    return Verify(options);
+                }
 
                 if (!Directory.Exists(options.ManagedDir))
                     throw new DirectoryNotFoundException("Managed directory not found: " + options.ManagedDir);
@@ -118,6 +125,134 @@ namespace LocalAIApiPatcher
             InjectConfigBootstrap(kolkataApiType, ensureConfigRef);
 
             WriteAssembly(assembly, outputPath);
+        }
+
+        /// <summary>
+        /// Проверяет, что ассембли действительно пропатчены: тело
+        /// KolkataApi::CompleteOpenRouterAsync вызывает рантайм мода,
+        /// а форсированные геттеры возвращают ожидаемые константы.
+        /// </summary>
+        private static int Verify(PatchOptions options)
+        {
+            var assemblyCSharpPath = options.AssemblyCSharpPath
+                ?? Path.Combine(options.ManagedDir, "Assembly-CSharp.dll");
+            var scriptsAssDefPath = options.ScriptsAssDefPath
+                ?? Path.Combine(options.ManagedDir, "ScriptsAssDef.dll");
+
+            var resolver = new DefaultAssemblyResolver();
+            resolver.AddSearchDirectory(options.ManagedDir);
+            var readerParameters = new ReaderParameters { AssemblyResolver = resolver };
+
+            var failures = 0;
+
+            using (var assembly = AssemblyDefinition.ReadAssembly(assemblyCSharpPath, readerParameters))
+            {
+                var kolkataApi = assembly.MainModule.Types.FirstOrDefault(t => t.Name == KolkataApiTypeName);
+                if (kolkataApi == null)
+                {
+                    Console.Error.WriteLine("FAIL: " + KolkataApiTypeName + " not found in " + assemblyCSharpPath);
+                    return 1;
+                }
+
+                var completeOpenRouter = kolkataApi.Methods.FirstOrDefault(m => m.Name == CompleteOpenRouterMethodName);
+                if (completeOpenRouter == null || !completeOpenRouter.HasBody)
+                {
+                    Console.Error.WriteLine("FAIL: " + CompleteOpenRouterMethodName + " not found");
+                    failures++;
+                }
+                else
+                {
+                    var callsRuntime = completeOpenRouter.Body.Instructions.Any(i =>
+                        i.OpCode == OpCodes.Call &&
+                        i.Operand is MethodReference mr &&
+                        mr.Name == CompleteChatMethodName);
+
+                    Report("CompleteOpenRouterAsync -> " + CompleteChatMethodName, callsRuntime, ref failures);
+                }
+
+                ReportGetter(kolkataApi, "get_BackendAuthStatus", "2", ref failures);
+                ReportGetter(kolkataApi, "get_BackendAuthenticated", "1", ref failures);
+                ReportGetter(kolkataApi, "get_HasInvalidKey", null, ref failures, expectPresent: false);
+                ReportEdgeNeutralized(kolkataApi, ref failures);
+            }
+
+            if (File.Exists(scriptsAssDefPath))
+            {
+                using var scripts = AssemblyDefinition.ReadAssembly(scriptsAssDefPath, readerParameters);
+                var hostAiSettings = scripts.MainModule.Types.FirstOrDefault(t => t.Name == HostAiSettingsTypeName);
+
+                if (hostAiSettings == null)
+                {
+                    Report("HostAiSettings found", false, ref failures);
+                }
+                else
+                {
+                    ReportGetter(hostAiSettings, "get_OpenRouterSelected", "1", ref failures);
+                    ReportGetter(hostAiSettings, "get_UseDirectOpenRouter", "1", ref failures);
+                    ReportGetter(hostAiSettings, "get_HasInvalidKey", "0", ref failures);
+
+                    var apiKey = hostAiSettings.Methods.FirstOrDefault(m => m.Name == "get_ApiKey");
+                    var keyLiteral = apiKey?.Body?.Instructions
+                        .Where(i => i.OpCode == OpCodes.Ldstr)
+                        .Select(i => i.Operand as string)
+                        .FirstOrDefault(v => !string.IsNullOrEmpty(v));
+                    Report("HostAiSettings::get_ApiKey -> \"" + (keyLiteral ?? "<none>") + "\"", keyLiteral != null, ref failures);
+                }
+            }
+            else
+            {
+                Console.WriteLine("SKIP: " + scriptsAssDefPath + " not found");
+            }
+
+            if (failures == 0)
+            {
+                Console.WriteLine("VERIFY SUCCESS");
+                return 0;
+            }
+
+            Console.Error.WriteLine("VERIFY FAILED: " + failures + " check(s)");
+            return 1;
+        }
+
+        private static void Report(string name, bool passed, ref int failures)
+        {
+            Console.WriteLine((passed ? "OK   " : "FAIL ") + name);
+            if (!passed)
+                failures++;
+        }
+
+        /// <summary>Проверяет, что геттер заменён на ожидаемую константу.</summary>
+        private static void ReportGetter(
+            TypeDefinition type,
+            string methodName,
+            string? expectedOperand,
+            ref int failures,
+            bool expectPresent = true)
+        {
+            var method = type.Methods.FirstOrDefault(m => m.Name == methodName);
+
+            if (method == null)
+            {
+                if (expectPresent)
+                    Report(type.Name + "::" + methodName, false, ref failures);
+                return;
+            }
+
+            var operand = method.Body?.Instructions
+                .Where(i => i.OpCode == OpCodes.Ldc_I4 || i.OpCode == OpCodes.Ldc_I4_S)
+                .Select(i => i.Operand?.ToString())
+                .FirstOrDefault();
+
+            var passed = operand == expectedOperand;
+            Report(type.Name + "::" + methodName + " -> " + (operand ?? "<none>"), passed, ref failures);
+        }
+
+        private static void ReportEdgeNeutralized(TypeDefinition kolkataApi, ref int failures)
+        {
+            var startEdge = kolkataApi.Methods.FirstOrDefault(m => m.Name == "StartEdgeAuthentication");
+            var neutralized = startEdge?.Body?.Instructions.Count == 1 &&
+                              startEdge.Body.Instructions[0].OpCode == OpCodes.Ret;
+            Report("StartEdgeAuthentication -> no-op", neutralized, ref failures);
         }
 
         /// <summary>Перенаправляет KolkataApi::CompleteOpenRouterAsync на локальный транспорт.</summary>
@@ -316,6 +451,7 @@ namespace LocalAIApiPatcher
             public string ApiKey { get; private set; } = "magpie";
             public string? AssemblyCSharpPath { get; private set; }
             public string? ScriptsAssDefPath { get; private set; }
+            public bool VerifyOnly { get; private set; }
 
             public static PatchOptions Parse(string[] args)
             {
@@ -342,6 +478,9 @@ namespace LocalAIApiPatcher
                             break;
                         case "--scripts-assdef":
                             options.ScriptsAssDefPath = RequireValue(args, ++i, "--scripts-assdef");
+                            break;
+                        case "--verify":
+                            options.VerifyOnly = true;
                             break;
                         case "--help":
                         case "-h":
@@ -397,6 +536,7 @@ namespace LocalAIApiPatcher
                 Console.WriteLine("  --api-key <key>            Ключ, прошиваемый в HostAiSettings::get_ApiKey (по умолчанию magpie)");
                 Console.WriteLine("  --assembly-csharp <path>   Принять Assembly-CSharp.dll из другого файла (например, чистый .bak)");
                 Console.WriteLine("  --scripts-assdef <path>    Принять ScriptsAssDef.dll из другого файла");
+                Console.WriteLine("  --verify                   Только проверить, что ассембли уже пропатчены");
                 Console.WriteLine();
                 Console.WriteLine("Example:");
                 Console.WriteLine("  LocalAIApiPatcher --managed \"C:\\Game\\Game_Data\\Managed\" --output .\\build");

@@ -28,3 +28,6 @@ _LocalAIApiMod_backup/
 .idea/
 *.user
 *.suo
+
+# Local screenshots captured during manual in-game verification
+_shots/

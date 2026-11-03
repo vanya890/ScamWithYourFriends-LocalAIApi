@@ -104,6 +104,16 @@ LocalAIApiPatcher --managed <ManagedDir> --output <OutDir> --mod <LocalAIApiMod.
                  --api-key <key> [--assembly-csharp <clean.dll>] [--scripts-assdef <clean.dll>]
 ```
 
+Проверить уже пропатченные сборки, не изменяя их:
+
+```powershell
+dotnet build\patcher\LocalAIApiPatcher.dll --verify --managed "<GameDir>\<Game>_Data\Managed"
+```
+
+Команда читает IL и подтверждает, что `CompleteOpenRouterAsync` вызывает
+рантайм мода, геттеры аутентификации заменены на константы, а
+`HostAiSettings` переведён в direct-режим.
+
 ## Диагностика
 
 Проверить, что запросы действительно уходят на локальный сервер:

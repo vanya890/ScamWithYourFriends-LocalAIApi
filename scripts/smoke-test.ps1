@@ -76,14 +76,17 @@ if ((Test-Path -LiteralPath $deployedAssembly) -and (Test-Path -LiteralPath $bui
     Test-Result 'Managed\Assembly-CSharp.dll пропатчен' $false '(нет файла сборки - запустите deploy.ps1)'
 }
 
-$hasRuntimeReference = $false
-if (Test-Path -LiteralPath $deployedAssembly) {
-    # В .NET-метаданных строки хранятся в UTF-8 (в отличие от ldstr-литералов, которые UTF-16).
-    $bytes = [System.IO.File]::ReadAllBytes($deployedAssembly)
-    $text = [System.Text.Encoding]::UTF8.GetString($bytes)
-    $hasRuntimeReference = $text.Contains('LocalAIApiRuntime') -and $text.Contains('CompleteChatCompletionAsync')
+# IL-проверка: убеждаемся, что тела методов реально заменены, а не просто
+# что в файле встречается нужная строка.
+$patcherDll = Join-Path (Get-PatcherDir) 'LocalAIApiPatcher.dll'
+if (Test-Path -LiteralPath $patcherDll) {
+    $verifyOutput = & dotnet $patcherDll --verify --managed $managedDir 2>&1
+    $verifyOk = $LASTEXITCODE -eq 0
+    Test-Result 'IL-проверка пропатченных сборок' $verifyOk
+    $verifyOutput | Where-Object { $_ -match '^(FAIL|SKIP)' } | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
+} else {
+    Test-Result 'IL-проверка пропатченных сборок' $false "(патчер не собран: $patcherDll)"
 }
-Test-Result 'В Assembly-CSharp.dll есть ссылка на рантайм мода' $hasRuntimeReference
 
 Write-Step 'Локальный эндпоинт'
 
