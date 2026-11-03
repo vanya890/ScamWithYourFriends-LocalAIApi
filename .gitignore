@@ -1,0 +1,30 @@
+# Build output
+bin/
+obj/
+build/
+dist/
+
+# Game assemblies and private references (never commit game code)
+lib/
+*.dll
+*.pdb
+*.bak
+*.bak2
+*.tmp
+
+# Local runtime state
+*.log
+LocalAIApi.cfg
+
+# Local machine-specific configuration (game path must not be committed)
+game.dir
+
+# Backup repository created next to the game by scripts\deploy.ps1
+_LocalAIApiMod_backup/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo

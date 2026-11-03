@@ -1,0 +1,10 @@
+# Local AI API configuration
+Enabled = true
+ApiEndpoint = http://127.0.0.1:3425/v1/chat/completions
+ApiKey = magpie
+ModelName = group/never-stuck
+TimeoutSeconds = 60
+Temperature = 0.7
+MaxTokens = 512
+DebugLogging = true
+AutoDiscoverAtomicChat = false

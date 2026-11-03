@@ -1,0 +1,36 @@
+<Project>
+
+  <!--
+    Определяет каталог игры "Scam With Your Friends" для сборки мода.
+
+    Порядок разрешения GameDir:
+      1. Свойство MSBuild GameDir (например, dotnet build -p:GameDir=...)
+      2. Переменная окружения SCAM_GAME_DIR
+      3. Файл game.dir в корне репозитория (см. game.dir.example)
+
+    ManagedDir выводится как <GameDir>_Data/Managed, что соответствует
+    структуре Unity-сборки этой игры.
+  -->
+
+  <PropertyGroup>
+    <_GameDirFromEnv Condition="'$(GameDir)' == '' and '$(SCAM_GAME_DIR)' != ''">$(SCAM_GAME_DIR)</_GameDirFromEnv>
+    <GameDir Condition="'$(GameDir)' == '' and '$(_GameDirFromEnv)' != ''">$(_GameDirFromEnv)</GameDir>
+
+    <_GameDirFile>$(MSBuildThisFileDirectory)game.dir</_GameDirFile>
+    <GameDir Condition="'$(GameDir)' == '' and Exists('$(_GameDirFile)')">$([System.IO.File]::ReadAllText('$(_GameDirFile)').Trim())</GameDir>
+
+    <!--
+      Unity хранит managed-сборки в <GameDir>/<GameFolderName>_Data/Managed.
+      GetFullPath нормализует путь и убирает хвостовой разделитель,
+      после чего GetFileName корректно возвращает имя папки игры.
+    -->
+    <GameDirFull Condition="'$(GameDir)' != ''">$([System.IO.Path]::GetFullPath('$(GameDir)'))</GameDirFull>
+    <GameFolderName Condition="'$(GameFolderName)' == '' and '$(GameDirFull)' != ''">$([System.IO.Path]::GetFileName('$(GameDirFull)'))</GameFolderName>
+    <GameDataDir Condition="'$(GameDataDir)' == '' and '$(GameFolderName)' != ''">$(GameDirFull)/$(GameFolderName)_Data</GameDataDir>
+    <ManagedDir Condition="'$(ManagedDir)' == '' and '$(GameDataDir)' != ''">$(GameDataDir)/Managed</ManagedDir>
+
+    <!-- Нормализованный путь для проверок Exists() в MSBuild (единый разделитель). -->
+    <ManagedDirFull Condition="'$(ManagedDir)' != ''">$([System.IO.Path]::GetFullPath('$(ManagedDir)'))</ManagedDirFull>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      Игра работает на Unity Mono с mscorlib уровня .NET 4.x, поэтому мод
+      собирается под net40 и линкуется напрямую с игровыми ассембли.
+    -->
+    <TargetFramework>net40</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <RootNamespace>LocalAIApiMod</RootNamespace>
+    <AssemblyName>LocalAIApiMod</AssemblyName>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <OutputPath>$(MSBuildThisFileDirectory)..\..\build\</OutputPath>
+    <NoWarn>$(NoWarn);MSB3270</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Reference assemblies for net40 (не требует установленного VS/таргет-пака). -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!--
+    Игровые ассембли подключаются как reference-only (Private=false):
+    они уже есть в Managed-каталоге игры и не должны попадать в артефакты сборки.
+  -->
+  <Target Name="ValidateGameDir" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(ManagedDir)' == ''"
+           Text="GameDir не задан. Укажите -p:GameDir=&lt;путь&gt;, переменную SCAM_GAME_DIR или создайте файл game.dir (см. game.dir.example)." />
+    <Error Condition="'$(ManagedDirFull)' != '' and !Exists('$(ManagedDirFull)\mscorlib.dll')"
+           Text="Каталог Managed не найден или пуст: $(ManagedDirFull)" />
+  </Target>
+
+  <ItemGroup>
+    <Reference Include="mscorlib">
+      <HintPath>$(ManagedDir)\mscorlib.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="System">
+      <HintPath>$(ManagedDir)\System.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(ManagedDir)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UniTask">
+      <HintPath>$(ManagedDir)\UniTask.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(ManagedDir)\Newtonsoft.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>
